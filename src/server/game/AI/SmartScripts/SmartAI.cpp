@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 InfinityCore <http://www.noffearrdeathproject.net/>
+ * Copyright (C) 2008-2013 TrinityCore <http://www.trinitycore.org/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -803,6 +803,7 @@ void SmartAI::SetCombatMove(bool on)
         else
         {
             me->StopMoving();
+			me->GetMotionMaster()->Clear(true);
             me->GetMotionMaster()->MoveIdle();
         }
     }

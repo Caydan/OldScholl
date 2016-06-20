@@ -1,19 +1,6 @@
 /*
- * Copyright (C) 2013-2015 InfinityCore <http://www.noffearrdeathproject.net/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+* TER-Server
+*/
 
 #include "Cell.h"
 #include "CellImpl.h"
@@ -513,33 +500,53 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             delete targets;
             break;
         }
-        case SMART_ACTION_CAST:
-        {
-            if (!me)
-                break;
+		case SMART_ACTION_CAST:
+		{
+			if (!me)
+				break;
 
-            ObjectList* targets = GetTargets(e, unit);
-            if (!targets)
-                break;
+			ObjectList* targets = GetTargets(e, unit);
+			if (!targets)
+				break;
 
-            for (ObjectList::const_iterator itr = targets->begin(); itr != targets->end(); ++itr)
-            {
-                if (IsUnit(*itr))
-                {
-                    if (e.action.cast.flags & SMARTCAST_INTERRUPT_PREVIOUS)
-                        me->InterruptNonMeleeSpells(false);
+			for (ObjectList::const_iterator itr = targets->begin(); itr != targets->end(); ++itr)
+			{
+				if (!IsUnit(*itr))
+					continue;
 
-                    if (!(e.action.cast.flags & SMARTCAST_AURA_NOT_PRESENT) || !(*itr)->ToUnit()->HasAura(e.action.cast.spell))
-                        me->CastSpell((*itr)->ToUnit(), e.action.cast.spell, (e.action.cast.flags & SMARTCAST_TRIGGERED) ? true : false);
-                    else
-                        sLog->outDebug(LOG_FILTER_DATABASE_AI, "Spell %u not casted because it has flag SMARTCAST_AURA_NOT_PRESENT and the target (Guid: " UI64FMTD " Entry: %u Type: %u) already has the aura", e.action.cast.spell, (*itr)->GetGUID(), (*itr)->GetEntry(), uint32((*itr)->GetTypeId()));
-                    sLog->outDebug(LOG_FILTER_DATABASE_AI, "SmartScript::ProcessAction:: SMART_ACTION_CAST:: Creature %u casts spell %u on target %u with castflags %u",
-                        me->GetGUIDLow(), e.action.cast.spell, (*itr)->GetGUIDLow(), e.action.cast.flags);
-                }
-            }
+				if (!(e.action.cast.flags & SMARTCAST_AURA_NOT_PRESENT) || !(*itr)->ToUnit()->HasAura(e.action.cast.spell))
+				{
+					if (e.action.cast.flags & SMARTCAST_INTERRUPT_PREVIOUS)
+						me->InterruptNonMeleeSpells(false);
 
-            delete targets;
-            break;
+					if (e.action.cast.flags & SMARTCAST_COMBAT_MOVE)
+					{
+						// If cast flag SMARTCAST_COMBAT_MOVE is set combat movement will not be allowed
+						// unless target is outside spell range, out of mana, or LOS.
+							
+							bool _allowMove = false;
+						SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(e.action.cast.spell);
+						int32 mana = me->GetPower(POWER_MANA);
+						
+							if (me->GetDistance((*itr)->ToUnit()) > spellInfo->GetMaxRange(true) ||
+							me->GetDistance((*itr)->ToUnit()) < spellInfo->GetMinRange(true) ||
+							!me->ToUnit()->IsWithinLOSInMap((*itr)->ToUnit()) ||
+							mana < spellInfo->CalcPowerCost(me, spellInfo->GetSchoolMask()))
+							 _allowMove = true;
+						
+							CAST_AI(SmartAI, me->AI())->SetCombatMove(_allowMove);
+						}
+					
+						me->CastSpell((*itr)->ToUnit(), e.action.cast.spell, (e.action.cast.flags & SMARTCAST_TRIGGERED));
+					
+						sLog->outDebug(LOG_FILTER_DATABASE_AI, "SmartScript::ProcessAction:: SMART_ACTION_CAST:: Creature %u casts spell %u on target %u with castflags %u",
+						me->GetGUIDLow(), e.action.cast.spell, (*itr)->GetGUIDLow(), e.action.cast.flags);
+				}
+				else
+					sLog->outDebug(LOG_FILTER_DATABASE_AI, "Spell %u not casted because it has flag SMARTCAST_AURA_NOT_PRESENT and the target (Guid: " UI64FMTD " Entry: %u Type: %u) already has the aura", e.action.cast.spell, (*itr)->GetGUID(), (*itr)->GetEntry(), uint32((*itr)->GetTypeId()));
+			}
+			delete targets;
+			break;
         }
         case SMART_ACTION_INVOKER_CAST:
         {
@@ -1928,9 +1935,9 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             for (ObjectList::const_iterator itr = targets->begin(); itr != targets->end(); ++itr)
                 if (Creature* creature = (*itr)->ToCreature())
                 {
-                    creature->GetMotionMaster()->Clear();
-                    creature->GetMotionMaster()->MoveJump(e.target.x, e.target.y, e.target.z, (float)e.action.jump.speedxy, (float)e.action.jump.speedz);
-                }
+					creature->GetMotionMaster()->Clear();
+					creature->GetMotionMaster()->MoveJump(e.target.x, e.target.y, e.target.z, (float)e.action.jump.speedxy, (float)e.action.jump.speedz);
+				}
             /// @todo Resume path when reached jump location
 
             delete targets;
@@ -2012,20 +2019,21 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
         }
         case SMART_ACTION_SET_HOME_POS:
         {
-            if (!me)
+			ObjectList* targets = GetTargets(e, unit);
+			if (!targets)
                 break;
-
-            if (e.GetTargetType() == SMART_TARGET_SELF)
-                me->SetHomePosition(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), me->GetOrientation());
-            else if (e.GetTargetType() == SMART_TARGET_POSITION)
-                me->SetHomePosition(e.target.x, e.target.y, e.target.z, e.target.o);
-            else
-                sLog->outError(LOG_FILTER_SQL, "SmartScript: Action target for SMART_ACTION_SET_HOME_POS is not using SMART_TARGET_SELF or SMART_TARGET_POSITION, skipping");
-
-
-
-
-           break;
+			for (ObjectList::const_iterator itr = targets->begin(); itr != targets->end(); ++itr)
+				 if (IsCreature(*itr))
+				 {
+				if (e.GetTargetType() == SMART_TARGET_SELF)
+					 (*itr)->ToCreature()->SetHomePosition(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), me->GetOrientation());
+				else if (e.GetTargetType() == SMART_TARGET_POSITION)
+					 (*itr)->ToCreature()->SetHomePosition(e.target.x, e.target.y, e.target.z, e.target.o);
+				else
+					 sLog->outError(LOG_FILTER_SQL, "SmartScript: Action target for SMART_ACTION_SET_HOME_POS is not using SMART_TARGET_SELF or SMART_TARGET_POSITION, skipping");
+				}
+			delete targets;
+			break;
         }
        case SMART_ACTION_SET_HEALTH_REGEN:
         {
